@@ -1,11 +1,13 @@
 #define _XOPEN_SOURCE 600
 #define _GNU_SOURCE
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <string.h>
+#include <dirent.h>
 #include <ftw.h>
 #include <limits.h>
 #include <fcntl.h>
@@ -63,6 +65,7 @@ gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
         return hash_str;
 }
 
+
 static int compare_path(const char *src_path, const struct stat *sbuf1, int type)
 {
         struct stat sbuf2;
@@ -81,17 +84,49 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
 
         if (lstat(tgt_path, &sbuf2) == -1) {
                 perror("stat");
-                fprintf(stderr, "FAIL: file missing [%s, %s]\n", src_path, tgt_path);
+                fprintf(stderr, "File missing [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                 return -1;
         }
 
         if (!((sbuf1->st_mode & S_IFMT) == (sbuf2.st_mode & S_IFMT))) {
-                fprintf(stderr, "FAIL: file format differs [%s, %s]\n", src_path, tgt_path);
+                fprintf(stderr, "File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                 return -1;
         }
-        if (type == FTW_F) {
+
+        if (type == FTW_D) {
+                struct dirent **entrylist1;
+                struct dirent **entrylist2;
+                int nentry1;
+                int nentry2;
+
+                nentry1 = scandir(src_path, &entrylist1, NULL, alphasort);
+                if (nentry1 < 0) {
+                        perror("scandir");
+                        return -1;
+                }
+                int n = nentry1;
+                while (n--)
+                        free(entrylist1[n]);
+                free(entrylist1);
+
+                nentry2 = scandir(tgt_path, &entrylist2, NULL, alphasort);
+                if (nentry2 < 0) {
+                        perror("scandir");
+                        return -1;
+                }
+                n = nentry2;
+                while (n--)
+                        free(entrylist2[n]);
+                free(entrylist2);
+
+
+                if (nentry1 != nentry2) {
+                        fprintf(stderr, "Number of directory entry differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                        return -1;
+                }
+        } else if (type == FTW_F) {
                 if (!(sbuf1->st_size == sbuf2.st_size)) {
-                        fprintf(stderr, "FAIL: file size differs [%s, %s]\n", src_path, tgt_path);
+                        fprintf(stderr, "File size differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                         return -1;
                 }
 
@@ -106,22 +141,52 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
                                 return -1;
 
                         if (strcmp(cksum1, cksum2)) {
-                                fprintf(stderr, "FAIL: file checksum differs [%s, %s]\n", src_path, tgt_path);
+                                fprintf(stderr, "File checksum differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                                 return -1;
                         }
 		}
+        } else if (type == FTW_SL) {
+                char *real_link1;
+                char *real_link2;
+                real_link1 = realpath(src_path, NULL);
+                if (real_link1 == NULL) {
+                        perror("realpath");
+                        return -1;
+                }
+                real_link2 = realpath(tgt_path, NULL);
+                if (real_link2 == NULL) {
+                        perror("realpath");
+                        return -1;
+                }
+
+		const char *rel_base1;
+		const char *rel_base2;
+		rel_base1 = real_link1 + strlen(PATH1);
+		rel_base2 = real_link2 + strlen(PATH2);
+		if (strcmp(rel_base1, rel_base2)) {
+			// fprintf(stderr, "Symlinks resolve to different file names relative to input path [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+			// fprintf(stderr, "Continuing to check if it matches absolute path\n");
+
+			if (strcmp(real_link1, real_link2)) {
+				fprintf(stderr, "Symlinks resolve to different file names [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+				free(real_link1);
+				free(real_link2);
+				return -1;
+			}
+		}
+		free(real_link1);
+		free(real_link2);
         }
         free(tgt_path);
-        return 0;
+        return FTW_CONTINUE;
 }
+
 
 static int dtree_check(const char *path, const struct stat *sbuf, int type,
                         struct FTW *ftwb)
 {
 	switch(type) {
 	case FTW_D:
-		if (ftwb->level == 0)
-			return FTW_CONTINUE;
 	case FTW_F:
 	case FTW_SL:
                 /*

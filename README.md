@@ -5,8 +5,9 @@ This is an attempt at quickly figuring out if the contents of two paths are not 
 
 The match(comparison) happens in this order for an entry(file,dir) in the path:
 
-  - File pathname check - file availability
+  - File/dir pathname check - file/dir availability
   - File type/format check - regular file, directory, block, link, etc.
+  - Number of directory entries
   - File size check
   - Checksum check (for regular files only)
 
@@ -26,7 +27,8 @@ GCC & GLib-2.0
 `gcc -Wall -Wextra -o dtreematch dtreematch.c $(pkg-config --cflags --libs glib-2.0)`
 
 #### TODO:
-  - Multithread or fork with IPC or singals
+  - Break it in to modules
+  - Multithread/fork with IPC or singals
   - Handle `strnxxx` of `string.h` stuff to avoid buffer overruns 
   - Have input flags(switches) for configuring the comparison/check criteria
   - Checksum the first few bytes of the files before proceeding to do it for the entire file
