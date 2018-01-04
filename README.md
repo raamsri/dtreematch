@@ -8,7 +8,7 @@ The match(comparison) happens in this order for an entry(file,dir) in the path:
   - File pathname check - file availability
   - File type/format check - regular file, directory, block, link, etc.
   - File size check
-  - Checksum check
+  - Checksum check (for regular files only)
 
 If any of the above check fails for an entry while traversing(the very first mismatch), without continuing any further, the program bails out saying __'FAIL'__ along with the mismatch or program failure reason. If the contents are similar, exits with a string saying __'MATCH'__.
 

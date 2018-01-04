@@ -21,10 +21,19 @@ static char *PATH2;
 gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
 {
         int rfd;
+        int open_flags;
         ssize_t snr;
         char rbuf[4096];
-        rfd = open(file_path, O_RDONLY | O_NOFOLLOW | O_NOATIME);
+
+        open_flags = 	O_RDONLY 	|
+                        O_NOFOLLOW 	|
+                        O_NOATIME	|
+                        O_LARGEFILE	|
+                        O_NOCTTY	|
+                        O_NONBLOCK;
+        rfd = open(file_path, open_flags);
         if (rfd == -1) {
+                fprintf(stderr, "%s\n", file_path);
                 perror("open");
                 return NULL;
         }
@@ -86,19 +95,21 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
                         return -1;
                 }
 
-                char *cksum1 = NULL;
-                char *cksum2 = NULL;
-                cksum1 = (char *) get_file_checksum(src_path, CHECKSUM_G);
-                if (cksum1 == NULL)
-                        return -1;
-                cksum2 = (char *) get_file_checksum(tgt_path, CHECKSUM_G);
-                if (cksum2 == NULL)
-                        return -1;
+                if (S_ISREG(sbuf1->st_mode) && S_ISREG(sbuf2.st_mode)) {
+                        char *cksum1 = NULL;
+                        char *cksum2 = NULL;
+                        cksum1 = (char *) get_file_checksum(src_path, CHECKSUM_G);
+                        if (cksum1 == NULL)
+                                return -1;
+                        cksum2 = (char *) get_file_checksum(tgt_path, CHECKSUM_G);
+                        if (cksum2 == NULL)
+                                return -1;
 
-                if (strcmp(cksum1, cksum2)) {
-                        fprintf(stderr, "FAIL: file checksum differs [%s, %s]\n", src_path, tgt_path);
-                        return -1;
-                }
+                        if (strcmp(cksum1, cksum2)) {
+                                fprintf(stderr, "FAIL: file checksum differs [%s, %s]\n", src_path, tgt_path);
+                                return -1;
+                        }
+		}
         }
         free(tgt_path);
         return 0;
