@@ -8,17 +8,13 @@
 #include <inttypes.h>
 #include <string.h>
 #include <dirent.h>
-#include <ftw.h>
 #include <limits.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <glib.h>
 
-#define CHECKSUM_G G_CHECKSUM_MD5
+#include "dtreematch.h"
 
-static char *PATH1;
-static char *PATH2;
 
 gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
 {
@@ -35,7 +31,7 @@ gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
                         O_NONBLOCK;
         rfd = open(file_path, open_flags);
         if (rfd == -1) {
-                fprintf(stderr, "%s\n", file_path);
+                PRINT_STDERR("%s\n", file_path);
                 perror("open");
                 return NULL;
         }
@@ -44,7 +40,7 @@ gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
         cksum_g = g_checksum_new(checksum_type_g);
         gchar *hash_str;
         if (cksum_g == NULL) {
-                fprintf(stderr, "g_checksum_new returned NULL\n");
+                PRINT_STDERR("g_checksum_new returned NULL%s\n", "");
                 return NULL;
         }
 
@@ -66,7 +62,7 @@ gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
 }
 
 
-static int compare_path(const char *src_path, const struct stat *sbuf1, int type)
+int compare_path(const char *src_path, const struct stat *sbuf1, int type)
 {
         struct stat sbuf2;
         const char *diff_path;
@@ -82,14 +78,16 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
         tgt_path = strncpy(tgt_path, PATH2, strlen(PATH2) + 1);
         tgt_path = strncat(tgt_path, diff_path, strlen(diff_path));
 
+        PRINT_STDOUT("[SRC:%s, TGT:%s]", src_path, tgt_path);
+
         if (lstat(tgt_path, &sbuf2) == -1) {
                 perror("stat");
-                fprintf(stderr, "File missing [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                PRINT_STDERR("File missing [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                 return -1;
         }
 
         if (!((sbuf1->st_mode & S_IFMT) == (sbuf2.st_mode & S_IFMT))) {
-                fprintf(stderr, "File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                PRINT_STDERR("File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                 return -1;
         }
 
@@ -121,16 +119,16 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
 
 
                 if (nentry1 != nentry2) {
-                        fprintf(stderr, "Number of directory entry differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                        PRINT_STDERR("Number of directory entry differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                         return -1;
                 }
         } else if (type == FTW_F) {
                 if (!(sbuf1->st_size == sbuf2.st_size)) {
-                        fprintf(stderr, "File size differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                        PRINT_STDERR("File size differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                         return -1;
                 }
 
-                if (S_ISREG(sbuf1->st_mode) && S_ISREG(sbuf2.st_mode)) {
+                if (!IS_SKIP_CONTENT_HASH && (S_ISREG(sbuf1->st_mode) && S_ISREG(sbuf2.st_mode))) {
                         char *cksum1 = NULL;
                         char *cksum2 = NULL;
                         cksum1 = (char *) get_file_checksum(src_path, CHECKSUM_G);
@@ -141,11 +139,11 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
                                 return -1;
 
                         if (strcmp(cksum1, cksum2)) {
-                                fprintf(stderr, "File checksum differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+                                PRINT_STDERR("File checksum differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
                                 return -1;
                         }
 		}
-        } else if (type == FTW_SL) {
+        } else if (!IS_SKIP_REFNAME && type == FTW_SL) {
                 char *real_link1;
                 char *real_link2;
                 real_link1 = realpath(src_path, NULL);
@@ -164,11 +162,8 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
 		rel_base1 = real_link1 + strlen(PATH1);
 		rel_base2 = real_link2 + strlen(PATH2);
 		if (strcmp(rel_base1, rel_base2)) {
-			// fprintf(stderr, "Symlinks resolve to different file names relative to input path [SRC:%s, TGT:%s]\n", src_path, tgt_path);
-			// fprintf(stderr, "Continuing to check if it matches absolute path\n");
-
 			if (strcmp(real_link1, real_link2)) {
-				fprintf(stderr, "Symlinks resolve to different file names [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+				PRINT_STDERR("Symlinks resolve to different file names [SRC:%s, TGT:%s]\n", src_path, tgt_path);
 				free(real_link1);
 				free(real_link2);
 				return -1;
@@ -177,32 +172,31 @@ static int compare_path(const char *src_path, const struct stat *sbuf1, int type
 		free(real_link1);
 		free(real_link2);
         }
+
         free(tgt_path);
+        PRINT_STDOUT(" - MATCH%s\n", "");
         return FTW_CONTINUE;
 }
 
 
-static int dtree_check(const char *path, const struct stat *sbuf, int type,
+int dtree_check(const char *path, const struct stat *sbuf, int type,
                         struct FTW *ftwb)
 {
+        if (MAX_LEVEL != -1 && ftwb->level > MAX_LEVEL)
+                return FTW_SKIP_SIBLINGS;
 	switch(type) {
+	case FTW_DNR:
+	case FTW_NS:
+                PRINT_STDERR("Could not read from path %s\n", path);
+                return FTW_STOP;
 	case FTW_D:
 	case FTW_F:
 	case FTW_SL:
-                /*
-                fprintf(stdout, "%-14ld::%-4ld::%-40s::%-14jd::%d::%s\n",
-				(long) sbuf->st_ino,
-				(long) sbuf->st_nlink,
-				path,
-				(intmax_t) sbuf->st_size,
-				ftwb->level,
-				path + ftwb->base);
-                */
                 if (compare_path(path, sbuf, type))
                         return FTW_STOP;
 		return FTW_CONTINUE;
 	default:
-		fprintf(stderr, "Unexpected situation, exiting!\n");
+		PRINT_STDERR("Unexpected situation, exiting!%s\n", "");
 		return FTW_STOP;
 	}
 
@@ -210,6 +204,18 @@ static int dtree_check(const char *path, const struct stat *sbuf, int type,
 
 int main(int argc, char *argv[])
 {
+        GOptionContext *argctx;
+        GError *error_g = NULL;
+
+        argctx = g_option_context_new("\"/mugiwara/lufy\" \"/mugiwara/zoro\"");
+        g_option_context_add_main_entries(argctx, entries_g, NULL);
+        g_option_context_set_description(argctx, "Please report bugs at https://github.com/six-k/dtreematch or ramsri.hp@gmail.com");
+
+        if (!g_option_context_parse(argctx, &argc, &argv, &error_g)) {
+                fprintf(stderr, "Failed parsing arguments: %s\n", error_g->message);
+                exit(EXIT_FAILURE);
+        }
+
 	PATH1 = realpath((argc > 1) ? argv[1] : ".", NULL);
 	if (PATH1 == NULL) {
 		perror("realpath");
@@ -221,10 +227,50 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+        if (HASH_TYPE) {
+                if (strcmp((char *)HASH_TYPE, "sha1") == 0) {
+                        CHECKSUM_G = G_CHECKSUM_SHA1;
+                } else if (strcmp((char *)HASH_TYPE, "sha256") == 0){
+                        CHECKSUM_G = G_CHECKSUM_SHA256;
+                } else if (strcmp((char *)HASH_TYPE, "sha512") == 0){
+                        CHECKSUM_G = G_CHECKSUM_SHA512;
+                } else {
+                        CHECKSUM_G = G_CHECKSUM_MD5;
+                        HASH_TYPE = strdup("md5");
+                        if (HASH_TYPE == NULL) {
+                                perror("strdup");
+                                exit(EXIT_FAILURE);
+                        }
+                }
+        } else {
+                CHECKSUM_G = G_CHECKSUM_MD5;
+                HASH_TYPE = strdup("md5");
+                if (HASH_TYPE == NULL) {
+                        perror("strdup");
+                        exit(EXIT_FAILURE);
+                }
+        }
+
+        PRINT_STDOUT(   "Source path:\t%s\n"    \
+                        "Target path:\t%s\n"    \
+                        "Hash type:\t%s\n"      \
+                        "Max level:\t%s (%d)\n" \
+                        "Hash contents?\t%s\n"  \
+                        "Match refname?\t%s\n"  \
+                        "\n",
+                        PATH1,
+                        PATH2,
+                        (gchar *) HASH_TYPE,
+                        (MAX_LEVEL == -1) ? "all" : "", MAX_LEVEL,
+                        (!IS_SKIP_CONTENT_HASH) ? "Yes" : "No",
+                        (!IS_SKIP_REFNAME) ? "Yes" : "No");
+
+
+
         int ftw_flags;
-        ftw_flags               = FTW_PHYS  |
-                                  /* FTW_MOUNT | */
-                                  FTW_ACTIONRETVAL;
+        ftw_flags       = FTW_PHYS      |
+                        /* FTW_MOUNT    | */
+                        FTW_ACTIONRETVAL;
 
         int nftw_ret;
         nftw_ret = nftw(PATH1, dtree_check, 30, ftw_flags);
