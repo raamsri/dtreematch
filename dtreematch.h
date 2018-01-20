@@ -16,15 +16,17 @@ static char     *PATH1;
 static char     *PATH2;
 static gint     MAX_LEVEL = -1;
 static gchar    *HASH_TYPE;
-static gboolean IS_VERBOSE = FALSE;
+static gboolean IS_FOLLOW_SYMLINK = FALSE;
 static gboolean IS_SKIP_CONTENT_HASH = FALSE;
 static gboolean IS_SKIP_REFNAME = FALSE;
+static gboolean IS_VERBOSE = FALSE;
 static GChecksumType CHECKSUM_G;
 
 
 static GOptionEntry entries_g[] = {
         { "max-level", 'l', 0, G_OPTION_ARG_INT, &MAX_LEVEL, "Do not traverse tree beyond N level(s)", "N" },
         { "checksum", 'c', 0, G_OPTION_ARG_STRING, &HASH_TYPE, "Valid hashing algorithms: md5, sha1, sha256, sha512.", "md5" },
+        { "follow-symlink", 'f', 0, G_OPTION_ARG_NONE, &IS_FOLLOW_SYMLINK, "Follow symbolic links", NULL },
         { "no-content-hash", 'F', 0, G_OPTION_ARG_NONE, &IS_SKIP_CONTENT_HASH, "Skip hash check for the contents of the file", NULL },
         { "no-refname", 'S', 0, G_OPTION_ARG_NONE, &IS_SKIP_REFNAME, "Do not compare symbolic links' referent file path name", NULL },
         { "verbose", 'v', 0, G_OPTION_ARG_NONE, &IS_VERBOSE, "Verbose output", NULL },

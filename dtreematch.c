@@ -86,10 +86,19 @@ int compare_path(const char *src_path, const struct stat *sbuf1, int type)
                 return -1;
         }
 
-        if (!((sbuf1->st_mode & S_IFMT) == (sbuf2.st_mode & S_IFMT))) {
-                PRINT_STDERR("File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
-                return -1;
-        }
+	if (IS_FOLLOW_SYMLINK) {
+		if (!S_ISLNK(sbuf1->st_mode) && !S_ISLNK(sbuf2.st_mode)) {
+			if (!((sbuf1->st_mode & S_IFMT) == (sbuf2.st_mode & S_IFMT))) {
+				PRINT_STDERR("File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+				return -1;
+			}
+		}
+	} else {
+		if (!((sbuf1->st_mode & S_IFMT) == (sbuf2.st_mode & S_IFMT))) {
+			PRINT_STDERR("File format differs [SRC:%s, TGT:%s]\n", src_path, tgt_path);
+			return -1;
+		}
+	}
 
         if (type == FTW_D) {
                 struct dirent **entrylist1;
@@ -195,6 +204,10 @@ int dtree_check(const char *path, const struct stat *sbuf, int type,
                 if (compare_path(path, sbuf, type))
                         return FTW_STOP;
 		return FTW_CONTINUE;
+	case FTW_SLN:
+                PRINT_STDERR("File path is a symbolic link pointing to "
+				"a nonexistent file %s. Skipping check!\n", path);
+		return FTW_CONTINUE;
 	default:
 		PRINT_STDERR("Unexpected situation, exiting!%s\n", "");
 		return FTW_STOP;
@@ -251,26 +264,32 @@ int main(int argc, char *argv[])
                 }
         }
 
-        PRINT_STDOUT(   "Source path:\t%s\n"    \
-                        "Target path:\t%s\n"    \
-                        "Hash type:\t%s\n"      \
-                        "Max level:\t%s (%d)\n" \
-                        "Hash contents?\t%s\n"  \
-                        "Match refname?\t%s\n"  \
+        PRINT_STDOUT(   "Source path:\t\t%s\n"    \
+                        "Target path:\t\t%s\n"    \
+                        "Hash type:\t\t%s\n"      \
+                        "Max level:\t\t%s (%d)\n" \
+                        "Follow symlinks?\t%s\n"\
+                        "Hash contents?\t\t%s\n"  \
+                        "Match refname?\t\t%s\n"  \
                         "\n",
                         PATH1,
                         PATH2,
                         (gchar *) HASH_TYPE,
                         (MAX_LEVEL == -1) ? "all" : "", MAX_LEVEL,
+                        (IS_FOLLOW_SYMLINK) ? "Yes" : "No",
                         (!IS_SKIP_CONTENT_HASH) ? "Yes" : "No",
                         (!IS_SKIP_REFNAME) ? "Yes" : "No");
 
 
 
         int ftw_flags;
-        ftw_flags       = FTW_PHYS      |
-                        /* FTW_MOUNT    | */
-                        FTW_ACTIONRETVAL;
+	if (IS_FOLLOW_SYMLINK) {
+		ftw_flags       = FTW_ACTIONRETVAL;
+	} else {
+		ftw_flags       = FTW_PHYS      |
+				/* FTW_MOUNT    | */
+				FTW_ACTIONRETVAL;
+	}
 
         int nftw_ret;
         nftw_ret = nftw(PATH1, dtree_check, 30, ftw_flags);
