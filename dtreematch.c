@@ -16,20 +16,25 @@
 #include "dtreematch.h"
 
 
+char     *PATH1		= NULL;
+char     *PATH2		= NULL;
+
+gint     MAX_LEVEL 	= -1;
+gchar    *HASH_TYPE	= NULL;
+gboolean IS_FOLLOW_SYMLINK 	= FALSE;
+gboolean IS_SKIP_CONTENT_HASH 	= FALSE;
+gboolean IS_SKIP_REFNAME 	= FALSE;
+gboolean IS_VERBOSE 		= FALSE;
+GChecksumType CHECKSUM_G;
+
+
 gchar *get_file_checksum(const char *file_path, GChecksumType checksum_type_g)
 {
         int rfd;
-        int open_flags;
         ssize_t snr;
         char rbuf[4096];
 
-        open_flags = 	O_RDONLY 	|
-                        O_NOFOLLOW 	|
-                        O_NOATIME	|
-                        O_LARGEFILE	|
-                        O_NOCTTY	|
-                        O_NONBLOCK;
-        rfd = open(file_path, open_flags);
+        rfd = open(file_path, OPEN_FLAGS);
         if (rfd == -1) {
                 PRINT_STDERR("%s\n", file_path);
                 perror("open");
@@ -220,9 +225,19 @@ int main(int argc, char *argv[])
         GOptionContext *argctx;
         GError *error_g = NULL;
 
-        argctx = g_option_context_new("\"/mugiwara/lufy\" \"/mugiwara/zoro\"");
-        g_option_context_add_main_entries(argctx, entries_g, NULL);
-        g_option_context_set_description(argctx, "Please report bugs at https://github.com/six-k/dtreematch or ramsri.hp@gmail.com");
+	GOptionEntry entries_g[] = {
+		{ "max-level", 'l', 0, G_OPTION_ARG_INT, &MAX_LEVEL, "Do not traverse tree beyond N level(s)", "N" },
+		{ "checksum", 'c', 0, G_OPTION_ARG_STRING, &HASH_TYPE, "Valid hashing algorithms: md5, sha1, sha256, sha512.", "md5" },
+		{ "follow-symlink", 'f', 0, G_OPTION_ARG_NONE, &IS_FOLLOW_SYMLINK, "Follow symbolic links", NULL },
+		{ "no-content-hash", 'F', 0, G_OPTION_ARG_NONE, &IS_SKIP_CONTENT_HASH, "Skip hash check for the contents of the file", NULL },
+		{ "no-refname", 'S', 0, G_OPTION_ARG_NONE, &IS_SKIP_REFNAME, "Do not compare symbolic links' referent file path name", NULL },
+		{ "verbose", 'v', 0, G_OPTION_ARG_NONE, &IS_VERBOSE, "Verbose output", NULL },
+		{ NULL }
+	};
+
+	argctx = g_option_context_new("\"/mugiwara/lufy\" \"/mugiwara/zoro\"");
+	g_option_context_add_main_entries(argctx, entries_g, NULL);
+	g_option_context_set_description(argctx, "Please report bugs at https://github.com/six-k/dtreematch or ramsri.hp@gmail.com");
 
         if (!g_option_context_parse(argctx, &argc, &argv, &error_g)) {
                 fprintf(stderr, "Failed parsing arguments: %s\n", error_g->message);
